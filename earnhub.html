@@ -1,0 +1,920 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TaskHub — Smart Earning Platform</title>
+    <!-- Load Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Load Lucide Icons -->
+    <script type="module" src="https://unpkg.com/lucide@latest"></script>
+    <!-- Load Firebase Modules (Auth and Firestore) -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, addDoc, setDoc, onSnapshot, collection } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // Global Firebase variables are assumed to be defined by the environment
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-taskhub-app-id';
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : null;
+        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+
+        let db = null;
+        let auth = null;
+        let userId = null;
+        let isAuthReady = false;
+
+        // Expose necessary functions to the global scope for use in the script block
+        window.initializeFirebase = async () => {
+            if (!firebaseConfig) {
+                console.error("Firebase config is not available.");
+                // Fallback: If Firebase setup is missing, still mark ready.
+                isAuthReady = true;
+                return;
+            }
+
+            try {
+                // setLogLevel('Debug'); // Uncomment for detailed debug logs
+                const app = initializeApp(firebaseConfig);
+                db = getFirestore(app);
+                auth = getAuth(app);
+
+                const loginPromise = new Promise(resolve => {
+                    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+                        unsubscribe(); // Stop listening after the first event
+                        if (user) {
+                            userId = user.uid;
+                        } else {
+                            if (initialAuthToken) {
+                                await signInWithCustomToken(auth, initialAuthToken);
+                                userId = auth.currentUser.uid;
+                            } else {
+                                await signInAnonymously(auth);
+                                userId = auth.currentUser.uid;
+                            }
+                        }
+                        isAuthReady = true;
+                        console.log("Firebase Auth Ready. User ID:", userId);
+                        resolve();
+                    });
+                });
+                await loginPromise;
+
+                // Expose global variables
+                window.db = db;
+                window.auth = auth;
+                window.userId = userId;
+                window.getTaskHubRef = (collectionName) => {
+                    if (!userId) return null;
+                    // Using a private data path for user data
+                    return collection(db, `/artifacts/${appId}/users/${userId}/${collectionName}`);
+                }
+                
+            } catch (error) {
+                console.error("Firebase initialization or sign-in failed:", error);
+                isAuthReady = true; // Still allow app to try and render
+            }
+        };
+    </script>
+    <style>
+        /* Custom Styles for the Dark Metallic Theme and Gradients */
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap');
+        
+        body {
+            font-family: 'Inter', sans-serif;
+            /* Deep Graphite #0D0D0D */
+            background-color: #0D0D0D; 
+            color: #EAEAEA;
+            min-height: 100vh;
+            padding-bottom: 6rem; /* Space for fixed navigation bar */
+        }
+
+        /* 1. Primary Gradient (Core Background: Electric Blue #0078FF -> Soft Silver #C0C0C0) */
+        .bg-gradient-primary {
+            background-image: linear-gradient(135deg, #0078FF 0%, #C0C0C0 100%);
+        }
+
+        /* 2. Accent Gradient (Actions: Royal Blue #0052CC -> Bright Sky Blue #00C2FF) */
+        .bg-gradient-accent {
+            background-image: linear-gradient(90deg, #0052CC 0%, #00C2FF 100%);
+        }
+
+        /* 3. Gold Gradient (Earnings & Rewards: Soft Gold #FFD700 -> Warm Amber #FFB300) */
+        .bg-gradient-gold {
+            background-image: linear-gradient(90deg, #FFD700 0%, #FFB300 100%);
+        }
+
+        /* Base Surfaces */
+        .bg-panel-dark {
+            /* Charcoal Gray #1C1C1C */
+            background-color: #1C1C1C;
+        }
+
+        .bg-card-metallic {
+            /* Metallic Slate #2E2E2E */
+            background-color: #2E2E2E;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.5), 0 2px 4px -2px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+            transition: transform 0.3s, box-shadow 0.3s;
+        }
+        .bg-card-metallic:hover {
+            box-shadow: 0 10px 15px -3px rgba(0, 120, 255, 0.3), 0 4px 6px -4px rgba(0, 120, 255, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.15);
+        }
+
+        /* Button Glow & Hover */
+        .btn-accent {
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 15px rgba(0, 82, 204, 0.4);
+        }
+        .btn-accent:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(0, 194, 255, 0.6);
+        }
+        .btn-accent:active {
+            transform: translateY(0);
+        }
+
+        /* Navigation Icon Glow */
+        .nav-icon.active {
+            filter: drop-shadow(0 0 8px #00C2FF) drop-shadow(0 0 15px #FFD700);
+        }
+        .nav-icon {
+            transition: filter 0.3s, transform 0.2s;
+        }
+
+        /* Hero Banner Slide Effect */
+        .banner-slide {
+            transition: opacity 0.5s ease-in-out;
+        }
+
+        /* Scrollbar styling for a cleaner look */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #0D0D0D;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #2E2E2E;
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #3A3A3A;
+        }
+    </style>
+    <script>
+        // Global State and Utility Functions
+        const appState = {
+            view: 'home',
+            user: {
+                balance: 1540.75,
+                todayEarnings: 25.50,
+                totalWithdrawn: 450.00,
+                activePlan: 'Premium',
+                timeLeft: '28 Days',
+                tasksCompleted: 15,
+                canWithdraw: true,
+                referralLink: 'taskhub.com/ref/user123',
+                name: 'Gemini User',
+                email: 'user@example.com'
+            },
+            plans: [
+                { name: 'Free Tier', dailyReturn: 0.0, duration: 'Unlimited', minDeposit: 0, isActive: true },
+                { name: 'Basic Plan', dailyReturn: 0.8, duration: '30 Days', minDeposit: 100, isActive: false },
+                { name: 'Premium Plan', dailyReturn: 1.5, duration: '60 Days', minDeposit: 500, isActive: true },
+                { name: 'Elite Tier', dailyReturn: 2.5, duration: '90 Days', minDeposit: 2000, isActive: false },
+            ],
+            dailyTasks: [
+                { id: 1, desc: 'View 5 Promotional Videos', status: 'Pending', earnings: 0.50, icon: 'Video' },
+                { id: 2, desc: 'Complete Short Survey #34', status: 'Completed', earnings: 1.20, icon: 'ClipboardCheck' },
+                { id: 3, desc: 'Test New Website Feature', status: 'Pending', earnings: 0.80, icon: 'TestTube' },
+            ],
+            transactions: [
+                { date: '2025-10-15', type: 'Deposit', amount: 500.00, status: 'Completed', icon: 'Wallet' },
+                { date: '2025-10-16', type: 'Earnings', amount: 25.50, status: 'Completed', icon: 'Clock' },
+                { date: '2025-10-16', type: 'Withdraw', amount: 100.00, status: 'Pending', icon: 'Send' },
+                { date: '2025-10-17', type: 'Deposit', amount: 1000.00, status: 'Completed', icon: 'Wallet' },
+            ]
+        };
+
+        // --- Routing and Rendering ---
+
+        /** Updates the view and re-renders the app content. */
+        function navigate(view) {
+            appState.view = view;
+            window.location.hash = view; // Update hash for back/forward support
+            renderApp();
+            updateBottomNav();
+        }
+
+        /** Renders the current view content. */
+        function renderApp() {
+            const contentDiv = document.getElementById('app-content');
+            if (!contentDiv) return;
+
+            contentDiv.innerHTML = '';
+            
+            switch (appState.view) {
+                case 'home':
+                    contentDiv.innerHTML = renderHome();
+                    initHeroBanner();
+                    break;
+                case 'earn':
+                    contentDiv.innerHTML = renderEarn();
+                    break;
+                case 'profile':
+                case 'profile/account':
+                case 'profile/finance':
+                case 'profile/invite':
+                case 'profile/support':
+                    contentDiv.innerHTML = renderProfile();
+                    // Manually update the user ID display after rendering the profile page
+                    const userIdDisplay = document.getElementById('user-id-display');
+                    if (userIdDisplay) {
+                        userIdDisplay.textContent = window.userId || 'Not signed in.';
+                    }
+                    break;
+                default:
+                    contentDiv.innerHTML = renderHome();
+                    initHeroBanner();
+                    appState.view = 'home';
+            }
+            // Use Lucide to replace all tags with SVG icons
+            lucide.createIcons();
+        }
+
+        /** Sets the active state on the bottom navigation icons. */
+        function updateBottomNav() {
+            const navItems = document.querySelectorAll('.nav-item');
+            navItems.forEach(item => {
+                const view = item.getAttribute('data-view');
+                const icon = item.querySelector('.nav-icon');
+                if (icon) {
+                    if (appState.view === view || appState.view.startsWith(view + '/')) {
+                        icon.classList.add('active');
+                        item.classList.add('text-sky-300');
+                    } else {
+                        icon.classList.remove('active');
+                        item.classList.remove('text-sky-300');
+                    }
+                }
+            });
+        }
+
+        // --- Dynamic UI Components ---
+
+        /** Simulates the completion of a daily task. */
+        function completeTask(taskId) {
+            const task = appState.dailyTasks.find(t => t.id === taskId);
+            if (task && task.status === 'Pending') {
+                task.status = 'Completed';
+                appState.user.balance = parseFloat((appState.user.balance + task.earnings).toFixed(2));
+                appState.user.todayEarnings = parseFloat((appState.user.todayEarnings + task.earnings).toFixed(2));
+                appState.user.tasksCompleted += 1;
+                
+                showModal('Task Completed', `You earned $${task.earnings.toFixed(2)}! Your new balance is $${appState.user.balance.toFixed(2)}.`);
+                renderApp(); // Re-render the Earn page
+            }
+        }
+
+        /** Shows a modal message instead of alert(). */
+        function showModal(title, message) {
+            const modal = document.getElementById('custom-modal');
+            document.getElementById('modal-title').textContent = title;
+            document.getElementById('modal-message').textContent = message;
+            modal.classList.remove('hidden');
+            setTimeout(() => modal.classList.add('opacity-100'), 10);
+        }
+
+        /** Closes the modal. */
+        function closeModal() {
+            const modal = document.getElementById('custom-modal');
+            modal.classList.remove('opacity-100');
+            setTimeout(() => modal.classList.add('hidden'), 300);
+        }
+
+        /** Copies text to clipboard */
+        function copyToClipboard(text, message) {
+            const tempInput = document.createElement('input');
+            tempInput.value = text;
+            document.body.appendChild(tempInput);
+            tempInput.select();
+            document.execCommand('copy');
+            document.body.removeChild(tempInput);
+            showModal('Copied!', message);
+        }
+
+        /** Initializes the auto-scrolling hero banner. (Manual controls removed) */
+        function initHeroBanner() {
+            const banner = document.getElementById('hero-banner');
+            if (!banner) return;
+            const slides = banner.querySelectorAll('.banner-slide');
+            let currentSlide = 0;
+
+            function showSlide(index) {
+                slides.forEach((slide, i) => {
+                    slide.classList.add('hidden');
+                    slide.classList.remove('opacity-100');
+                    if (i === index) {
+                        slide.classList.remove('hidden');
+                        setTimeout(() => slide.classList.add('opacity-100'), 10);
+                    }
+                });
+            }
+
+            function nextSlide() {
+                currentSlide = (currentSlide + 1) % slides.length;
+                showSlide(currentSlide);
+            }
+
+            // Auto-scroll logic only
+            setInterval(nextSlide, 5000);
+            
+            showSlide(currentSlide); // Initial display
+        }
+
+        // --- Page Renders (HTML strings) ---
+
+        function renderHome() {
+            const user = appState.user;
+            return `
+                <div class="p-4 space-y-8 animate-in fade-in slide-in-from-top-4 duration-500">
+                    <!-- 1. Hero Section -->
+                    <div id="hero-banner" class="relative overflow-hidden rounded-xl h-48 sm:h-64 bg-card-metallic shadow-xl">
+                        <div class="absolute inset-0 bg-gradient-to-br from-[#0052CC]/50 to-[#0D0D0D]/50 z-0"></div>
+                        
+                        <!-- Slides -->
+                        <div class="absolute inset-0 z-10 flex items-center justify-center p-4">
+                            <div class="banner-slide absolute inset-0 p-6 opacity-0" data-slide="1">
+                                <h2 class="text-xl sm:text-3xl font-extrabold text-[#EAEAEA]">Grow Your Income Smarter</h2>
+                                <p class="text-sm sm:text-base text-[#B0B0B0] mt-1">Deposit funds, activate plans, and earn daily through simple online tasks.</p>
+                                <button onclick="navigate('earn')" class="mt-4 px-4 py-2 text-sm font-semibold rounded-lg bg-gradient-gold text-[#0D0D0D] btn-accent">
+                                    View Plans &rarr;
+                                </button>
+                            </div>
+                            <div class="banner-slide absolute inset-0 p-6 opacity-0 hidden" data-slide="2">
+                                <h2 class="text-xl sm:text-3xl font-extrabold text-[#EAEAEA]"> Fast Withdrawals, Zero Delay</h2>
+                                <p class="text-sm sm:text-base text-[#B0B0B0] mt-1">Cash out your earnings instantly to your preferred wallet.</p>
+                                <button onclick="navigate('profile/finance')" class="mt-4 px-4 py-2 text-sm font-semibold rounded-lg bg-gradient-gold text-[#0D0D0D] btn-accent">
+                                    Withdraw Now
+                                </button>
+                            </div>
+                        </div>
+                        <!-- Manual Navigation Arrows REMOVED as requested -->
+                    </div>
+
+                    <!-- Hero Action Buttons -->
+                    <div class="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                        ${renderActionButton('My Balance', user.balance.toFixed(2), 'Wallet', 'profile/finance', 'gold')}
+                        ${renderActionButton('My Plan', user.activePlan, 'TrendingUp', 'earn', 'accent')}
+                        ${renderActionButton('Deposit Funds', 'Add Money', 'CreditCard', 'profile/finance', 'accent')}
+                        ${renderActionButton('Withdraw Funds', 'Cash Out', 'Send', 'profile/finance', 'accent')}
+                    </div>
+
+                    <!-- 3. Dashboard Overview -->
+                    <h2 class="text-xl font-bold text-[#EAEAEA] border-l-4 border-[#4CC9F0] pl-3">Your Dashboard</h2>
+                    <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                        ${renderMetricCard('Total Balance', '$' + user.balance.toFixed(2), 'DollarSign', 'gold')}
+                        ${renderMetricCard('Today’s Earnings', '$' + user.todayEarnings.toFixed(2), 'Sun', 'accent')}
+                        ${renderMetricCard('Active Plan', user.activePlan, 'Zap', 'gold')}
+                        ${renderMetricCard('Time Left', user.timeLeft, 'Timer', 'accent')}
+                    </div>
+
+                    <!-- Quick Actions / Performance Chart Placeholder -->
+                    <div class="bg-card-metallic p-5 rounded-xl shadow-lg">
+                        <h3 class="text-lg font-semibold mb-3 text-[#4CC9F0]">Weekly Performance</h3>
+                        <div class="h-32 w-full bg-[#1C1C1C] rounded-lg p-2 flex items-end justify-around text-xs text-gray-400">
+                            <!-- Simple Bar Chart Simulation -->
+                            <div class="w-1/6 h-full flex flex-col justify-end items-center"><div class="w-3/5 rounded-t-full bg-sky-500/70 h-[30%]"></div><span class="mt-1">Mon</span></div>
+                            <div class="w-1/6 h-full flex flex-col justify-end items-center"><div class="w-3/5 rounded-t-full bg-sky-500/70 h-[55%]"></div><span class="mt-1">Tue</span></div>
+                            <div class="w-1/6 h-full flex flex-col justify-end items-center"><div class="w-3/5 rounded-t-full bg-sky-500/70 h-[70%]"></div><span class="mt-1">Wed</span></div>
+                            <div class="w-1/6 h-full flex flex-col justify-end items-center"><div class="w-3/5 rounded-t-full bg-sky-500/70 h-[90%] bg-gradient-gold"></div><span class="mt-1">Thu</span></div>
+                            <div class="w-1/6 h-full flex flex-col justify-end items-center"><div class="w-3/5 rounded-t-full bg-sky-500/70 h-[65%]"></div><span class="mt-1">Fri</span></div>
+                            <div class="w-1/6 h-full flex flex-col justify-end items-center"><div class="w-3/5 rounded-t-full bg-sky-500/70 h-[80%]"></div><span class="mt-1">Sat</span></div>
+                        </div>
+                    </div>
+
+                    <!-- 2. Feature Highlights Section -->
+                    <h2 class="text-xl font-bold text-[#EAEAEA] border-l-4 border-[#4CC9F0] pl-3">Top Features</h2>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        ${renderFeatureCard('Secure Transactions', 'Funds are protected with top-tier security.', 'Shield', 'accent')}
+                        ${renderFeatureCard('Fast Withdrawals', 'Withdraw instantly with zero delay.', 'Clock', 'gold')}
+                        ${renderFeatureCard('Daily Income Plans', 'Earn daily with multiple investment options.', 'Briefcase', 'accent')}
+                        ${renderFeatureCard('Reliable Support', 'Get help 24/7 whenever you need it.', 'MessageCircle', 'gold')}
+                    </div>
+                    
+                    <!-- 4. How It Works Section -->
+                    <h2 class="text-xl font-bold text-[#EAEAEA] border-l-4 border-[#4CC9F0] pl-3">How It Works</h2>
+                    <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+                        ${renderStepCard('Sign Up / Log In', 'Create your account to start.', 'UserCheck', 1)}
+                        ${renderStepCard('Choose a Plan', 'Pick an earning plan that fits your goals.', 'Puzzle', 2)}
+                        ${renderStepCard('Complete Daily Tasks', 'Earn by performing simple online tasks.', 'CheckCircle', 3)}
+                        ${renderStepCard('Withdraw Earnings', 'Cash out safely anytime.', 'DollarSign', 4)}
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderEarn() {
+            return `
+                <div class="p-4 space-y-8 animate-in fade-in slide-in-from-top-4 duration-500">
+                    <h1 class="text-3xl font-extrabold text-[#EAEAEA] border-b-2 border-sky-500/50 pb-2">Earn & Tasks</h1>
+
+                    <!-- Earnings Summary -->
+                    <div class="bg-card-metallic p-5 rounded-xl shadow-lg space-y-3">
+                        <h2 class="text-xl font-semibold text-[#FFD700]">Earnings Overview</h2>
+                        <div class="grid grid-cols-3 gap-3 text-center">
+                            ${renderSmallMetric('Total Earned', '$' + (appState.user.balance + appState.user.totalWithdrawn).toFixed(2), 'Trophy')}
+                            ${renderSmallMetric('Today\'s Income', '$' + appState.user.todayEarnings.toFixed(2), 'TrendingUp')}
+                            ${renderSmallMetric('Withdrawable', '$' + appState.user.balance.toFixed(2), 'Wallet')}
+                        </div>
+                        <p class="text-sm text-gray-400 mt-2">Your current balance is updated in real-time.</p>
+                    </div>
+
+                    <!-- 1. Available Plans -->
+                    <h2 class="text-xl font-bold text-[#EAEAEA] border-l-4 border-[#4CC9F0] pl-3">Available Plans</h2>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        ${appState.plans.map(renderPlanCard).join('')}
+                    </div>
+
+                    <!-- 2. Daily Tasks -->
+                    <h2 class="text-xl font-bold text-[#EAEAEA] border-l-4 border-[#4CC9F0] pl-3">Daily Tasks (${appState.user.tasksCompleted} Completed Today)</h2>
+                    <div class="bg-card-metallic p-2 rounded-xl shadow-lg">
+                        ${appState.dailyTasks.map(renderTaskRow).join('')}
+                        <div class="mt-4 p-3 bg-[#1C1C1C] rounded-lg text-sm text-gray-400 flex items-center justify-between">
+                            <p>Daily Task Limit: 20</p>
+                            <div class="w-1/2 bg-gray-600 rounded-full h-2.5">
+                                <div class="h-2.5 rounded-full bg-gradient-to-r from-green-500 to-lime-400" style="width: ${appState.user.tasksCompleted / 20 * 100}%"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderProfile() {
+            const currentSubView = appState.view.split('/').pop();
+            const activeClass = 'bg-gradient-gold text-[#0D0D0D]';
+            const inactiveClass = 'bg-card-metallic text-[#EAEAEA] hover:bg-gray-800';
+            const user = appState.user;
+
+            return `
+                <div class="p-4 space-y-6 animate-in fade-in slide-in-from-top-4 duration-500">
+                    <h1 class="text-3xl font-extrabold text-[#EAEAEA] border-b-2 border-sky-500/50 pb-2">User Profile</h1>
+
+                    <!-- Main Profile Card -->
+                    <div class="bg-card-metallic p-6 rounded-xl shadow-2xl text-center border border-sky-500/30">
+                        <div class="w-20 h-20 mx-auto rounded-full bg-gradient-primary flex items-center justify-center border-4 border-[#00C2FF]/50 shadow-lg">
+                            <i data-lucide="User" class="w-10 h-10 text-white"></i>
+                        </div>
+                        <h2 class="text-2xl font-bold text-[#EAEAEA] mt-3">${user.name}</h2>
+                        <p class="text-sm text-gray-400">${user.email}</p>
+                        <div class="mt-4 flex justify-center space-x-4">
+                            <div class="text-left">
+                                <p class="text-xs text-gray-500">Total Balance</p>
+                                <p class="text-lg font-bold bg-gradient-gold bg-clip-text text-transparent">$${user.balance.toFixed(2)}</p>
+                            </div>
+                            <div class="text-left">
+                                <p class="text-xs text-gray-500">Active Plan</p>
+                                <p class="text-lg font-bold text-[#4CC9F0]">${user.activePlan}</p>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Navigation Tabs -->
+                    <div class="flex flex-wrap gap-2 text-sm font-semibold justify-center">
+                        <button onclick="navigate('profile/account')" class="px-4 py-2 rounded-full ${currentSubView === 'profile' || currentSubView === 'account' ? activeClass : inactiveClass}">
+                            <i data-lucide="Settings" class="inline-block w-4 h-4 mr-1"></i> Account
+                        </button>
+                        <button onclick="navigate('profile/finance')" class="px-4 py-2 rounded-full ${currentSubView === 'finance' ? activeClass : inactiveClass}">
+                            <i data-lucide="Landmark" class="inline-block w-4 h-4 mr-1"></i> Finance
+                        </button>
+                        <button onclick="navigate('profile/invite')" class="px-4 py-2 rounded-full ${currentSubView === 'invite' ? activeClass : inactiveClass}">
+                            <i data-lucide="Users" class="inline-block w-4 h-4 mr-1"></i> Referrals
+                        </button>
+                        <button onclick="navigate('profile/support')" class="px-4 py-2 rounded-full ${currentSubView === 'support' ? activeClass : inactiveClass}">
+                            <i data-lucide="MessageCircle" class="inline-block w-4 h-4 mr-1"></i> Support
+                        </button>
+                    </div>
+
+                    <div class="profile-content">
+                        ${currentSubView === 'finance' ? renderFinanceSection() : 
+                          currentSubView === 'invite' ? renderReferralSection() : 
+                          currentSubView === 'support' ? renderSupportSection() : 
+                          renderAccountSection()}
+                    </div>
+
+                    <!-- User ID Display (MANDATORY for multi-user apps) -->
+                    <div class="pt-4 mt-6 border-t border-gray-700 text-center">
+                        <p class="text-xs text-gray-500">Connected User ID:</p>
+                        <p class="text-sm font-mono break-all text-gray-300" id="user-id-display">Loading...</p>
+                    </div>
+                    <button onclick="window.auth.signOut().then(() => { navigate('home'); showModal('Signed Out', 'You have been signed out. You are now using an anonymous session.'); location.reload(); })" class="w-full py-3 bg-[#FF3B30] text-white font-bold rounded-lg mt-4 shadow-lg hover:bg-red-600 transition duration-300">
+                        <i data-lucide="LogOut" class="inline-block w-5 h-5 mr-2"></i> Log Out
+                    </button>
+                </div>
+            `;
+        }
+
+        // --- Profile Sub-Section Renders ---
+
+        function renderAccountSection() {
+            const user = appState.user;
+            return `
+                <div class="bg-card-metallic p-5 rounded-xl shadow-lg space-y-6 border border-sky-500/20">
+                    <h2 class="text-xl font-bold text-[#4CC9F0] flex items-center"><i data-lucide="UserCircle" class="w-6 h-6 mr-3"></i> Profile Details</h2>
+                    <form onsubmit="event.preventDefault(); showModal('Success', 'Profile updated successfully.');">
+                        ${renderInput('Full Name', 'text', 'name', user.name)}
+                        ${renderInput('Email Address', 'email', 'email', user.email)}
+                        ${renderInput('Profile Image URL', 'url', 'pic', 'https://placehold.co/100x100/3A3A3A/C0C0C0?text=U')}
+                        
+                        <h3 class="text-lg font-semibold text-[#EAEAEA] mt-6 mb-3 border-t border-gray-700 pt-4">Security Settings</h3>
+                        
+                        <div class="flex items-center justify-between p-3 bg-[#1C1C1C] rounded-lg border border-gray-700">
+                            <span class="text-[#EAEAEA] flex items-center"><i data-lucide="ShieldCheck" class="w-5 h-5 mr-2 text-green-400"></i> Two-Factor Verification (2FA)</span>
+                            <label class="relative inline-flex items-center cursor-pointer">
+                                <input type="checkbox" value="" class="sr-only peer" checked>
+                                <div class="w-11 h-6 bg-gray-700 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-sky-800 rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-sky-500"></div>
+                            </label>
+                        </div>
+                        
+                        <button type="submit" class="w-full py-3 mt-6 bg-gradient-accent text-white font-bold rounded-lg btn-accent">
+                            <i data-lucide="Save" class="inline-block w-5 h-5 mr-2"></i> Save Changes
+                        </button>
+                    </form>
+                </div>
+            `;
+        }
+
+        function renderFinanceSection() {
+            const transactionsHtml = appState.transactions.map(tx => `
+                <tr class="border-t border-gray-700 hover:bg-[#3A3A3A] transition">
+                    <td class="px-4 py-3 text-sm">${tx.date}</td>
+                    <td class="px-4 py-3 text-sm flex items-center">
+                        <i data-lucide="${tx.icon}" class="w-4 h-4 mr-2 ${tx.type === 'Deposit' ? 'text-green-400' : tx.type === 'Withdraw' ? 'text-red-400' : 'text-sky-400'}"></i>
+                        ${tx.type}
+                    </td>
+                    <td class="px-4 py-3 text-sm font-semibold text-right">$${tx.amount.toFixed(2)}</td>
+                    <td class="px-4 py-3 text-sm">
+                        <span class="px-3 py-1 text-xs rounded-full ${tx.status === 'Completed' ? 'bg-green-700/50 text-green-300' : 'bg-yellow-700/50 text-yellow-300'}">
+                            ${tx.status}
+                        </span>
+                    </td>
+                </tr>
+            `).join('');
+
+            return `
+                <div class="space-y-6">
+                    <!-- Balance Overview -->
+                    <div class="bg-panel-dark p-5 rounded-xl shadow-inner border border-sky-500/20">
+                        <h2 class="text-lg font-bold text-gray-400 flex items-center mb-2"><i data-lucide="Wallet" class="w-5 h-5 mr-2 text-[#FFD700]"></i> Current Balance</h2>
+                        <p class="text-4xl font-extrabold bg-gradient-gold bg-clip-text text-transparent">$${appState.user.balance.toFixed(2)}</p>
+                        <p class="text-sm text-gray-500 mt-2">Ready to withdraw or invest in higher plans.</p>
+                    </div>
+
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                        <!-- Deposit Funds Card -->
+                        <div class="bg-card-metallic p-5 rounded-xl shadow-lg border border-green-500/20">
+                            <h2 class="text-xl font-bold text-green-400 mb-4 flex items-center"><i data-lucide="CreditCard" class="w-6 h-6 mr-2"></i> Deposit Funds</h2>
+                            <form onsubmit="event.preventDefault(); showModal('Deposit Initiated', 'Your deposit request is being processed. Check the transaction history for updates.');">
+                                ${renderInput('Amount ($)', 'number', 'deposit-amount', '', 'min="10"')}
+                                ${renderSelect('Payment Method', 'deposit-method', ['Credit Card', 'Crypto (BTC)', 'Bank Transfer'])}
+                                <button type="submit" class="w-full py-3 mt-4 bg-gradient-to-r from-green-600 to-emerald-400 text-white font-bold rounded-lg btn-accent">
+                                    <i data-lucide="ArrowDown" class="inline-block w-5 h-5 mr-2"></i> Initiate Deposit
+                                </button>
+                            </form>
+                        </div>
+
+                        <!-- Withdraw Funds Card -->
+                        <div class="bg-card-metallic p-5 rounded-xl shadow-lg border border-red-500/20">
+                            <h2 class="text-xl font-bold text-red-400 mb-4 flex items-center"><i data-lucide="Send" class="w-6 h-6 mr-2"></i> Withdraw Funds</h2>
+                            <form onsubmit="event.preventDefault(); showModal('Withdrawal Request', 'Your withdrawal request of $'+document.getElementById('withdraw-amount').value+' is submitted.');">
+                                ${renderInput('Amount ($)', 'number', 'withdraw-amount', '', 'min="10" max="' + appState.user.balance.toFixed(2) + '"')}
+                                ${renderSelect('Withdrawal Method', 'withdraw-method', ['PayPal', 'Crypto (USDT)', 'Bank Account'])}
+                                ${renderInput('Wallet/Account ID', 'text', 'wallet-id', 'Your crypto address or PayPal email')}
+                                <button type="submit" class="w-full py-3 mt-4 ${appState.user.canWithdraw ? 'bg-[#FF3B30] hover:bg-red-600' : 'bg-dark-steel cursor-not-allowed' } text-white font-bold rounded-lg transition duration-300" ${appState.user.canWithdraw ? '' : 'disabled'}>
+                                    <i data-lucide="ArrowUp" class="inline-block w-5 h-5 mr-2"></i> Withdraw Now
+                                </button>
+                            </form>
+                        </div>
+                    </div>
+
+                    <!-- Transaction History -->
+                    <div class="bg-panel-dark p-5 rounded-xl shadow-lg overflow-x-auto border border-gray-700">
+                        <h2 class="text-xl font-bold text-[#4CC9F0] mb-4 flex items-center"><i data-lucide="History" class="w-6 h-6 mr-2"></i> Transaction History</h2>
+                        <table class="min-w-full text-left text-[#EAEAEA] rounded-lg">
+                            <thead class="text-xs uppercase bg-[#1C1C1C] text-gray-400">
+                                <tr>
+                                    <th scope="col" class="px-4 py-3">Date</th>
+                                    <th scope="col" class="px-4 py-3">Type</th>
+                                    <th scope="col" class="px-4 py-3 text-right">Amount</th>
+                                    <th scope="col" class="px-4 py-3">Status</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${transactionsHtml}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderReferralSection() {
+            const referralLink = appState.user.referralLink;
+            return `
+                <div class="bg-card-metallic p-5 rounded-xl shadow-lg space-y-6 border border-sky-500/20">
+                    <h2 class="text-xl font-bold text-[#FFD700] flex items-center"><i data-lucide="Users" class="w-6 h-6 mr-3"></i> TaskHub Referral Program</h2>
+                    <p class="text-gray-400">Share your unique link and earn <span class="text-[#FFD700] font-bold">10% commission</span> on the deposits of every friend you invite!</p>
+
+                    <!-- Referral Link Box -->
+                    <div class="bg-[#1C1C1C] p-4 rounded-lg flex items-center justify-between shadow-inner border border-gray-600">
+                        <p class="text-sm font-mono break-all text-[#4CC9F0] truncate">${referralLink}</p>
+                        <button onclick="copyToClipboard('${referralLink}', 'Your referral link was copied to the clipboard.')" class="ml-3 p-2 bg-gradient-gold rounded-lg btn-accent flex-shrink-0">
+                            <i data-lucide="Copy" class="w-5 h-5 text-[#0D0D0D]"></i>
+                        </button>
+                    </div>
+
+                    <!-- Stats -->
+                    <div class="grid grid-cols-2 gap-4 text-center border-t border-b border-gray-700 py-4">
+                        ${renderMetricCard('Friends Invited', '12', 'Users', 'accent')}
+                        ${renderMetricCard('Commission Earned', '$350.50', 'BadgeDollarSign', 'gold')}
+                    </div>
+
+                    <button class="w-full py-3 bg-gradient-accent text-white font-bold rounded-lg btn-accent" onclick="showModal('Share', 'Simulating share: Share your link via WhatsApp or Telegram!');">
+                        <i data-lucide="Share2" class="inline-block w-5 h-5 mr-2"></i> Share Invitation Link
+                    </button>
+                </div>
+            `;
+        }
+
+        function renderSupportSection() {
+            return `
+                <div class="bg-card-metallic p-5 rounded-xl shadow-lg space-y-6 border border-sky-500/20">
+                    <h2 class="text-xl font-bold text-[#4CC9F0] flex items-center"><i data-lucide="LifeBuoy" class="w-6 h-6 mr-3"></i> TaskHub Support Center</h2>
+                    
+                    <!-- Contact Info -->
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 pb-4 border-b border-gray-700">
+                        <div class="p-3 bg-panel-dark rounded-lg flex items-center">
+                            <i data-lucide="Mail" class="w-6 h-6 mr-3 text-sky-400"></i>
+                            <div>
+                                <p class="text-sm font-semibold">Email Support</p>
+                                <a href="mailto:support@taskhub.com" class="text-xs text-[#4CC9F0]">support@taskhub.com</a>
+                            </div>
+                        </div>
+                        <div class="p-3 bg-panel-dark rounded-lg flex items-center">
+                            <i data-lucide="MessageSquare" class="w-6 h-6 mr-3 text-green-400"></i>
+                            <div>
+                                <p class="text-sm font-semibold">Live Chat (WhatsApp)</p>
+                                <p class="text-xs text-gray-400">Response Time: 2-4 Hours</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Report Form -->
+                    <form onsubmit="event.preventDefault(); showModal('Report Submitted', 'Thank you! We aim to respond to all reports within 4 hours.');">
+                        <h3 class="text-lg font-semibold text-[#FFD700] mb-3 flex items-center"><i data-lucide="Bug" class="w-5 h-5 mr-2"></i> Report a Problem</h3>
+                        ${renderInput('Subject', 'text', 'report-subject', 'Issue with withdrawal / Task not completing')}
+                        <label for="report-message" class="block text-sm font-medium text-gray-400 mb-1 mt-4">Message</label>
+                        <textarea id="report-message" rows="4" class="w-full p-3 bg-[#1C1C1C] border border-gray-700 rounded-lg text-[#EAEAEA] focus:border-sky-500 focus:ring-sky-500" placeholder="Describe your issue in detail..."></textarea>
+                        
+                        <div class="mt-4 p-3 bg-[#1C1C1C] border border-dashed border-gray-600 rounded-lg text-sm text-gray-400 flex items-center justify-center cursor-pointer hover:border-sky-500 transition">
+                            <i data-lucide="Upload" class="w-5 h-5 mr-2"></i> Click to Attach Screenshot (Simulated)
+                        </div>
+
+                        <button type="submit" class="w-full py-3 mt-4 bg-gradient-accent text-white font-bold rounded-lg btn-accent">
+                            <i data-lucide="Send" class="inline-block w-5 h-5 mr-2"></i> Submit Report
+                        </button>
+                    </form>
+                </div>
+            `;
+        }
+
+        // --- Helper Components Renders ---
+
+        function renderActionButton(title, value, icon, targetView, style) {
+            const isGold = style === 'gold';
+            const bgColor = isGold ? 'bg-gradient-gold text-[#0D0D0D]' : 'bg-gradient-accent text-white';
+            const iconColor = isGold ? 'text-[#0D0D0D]' : 'text-white';
+
+            return `
+                <button onclick="navigate('${targetView}')" class="bg-card-metallic p-4 rounded-xl shadow-lg transition duration-300 hover:scale-[1.03] btn-accent flex flex-col justify-center items-center h-full">
+                    <div class="flex items-center space-x-2">
+                        <div class="p-2 rounded-full ${bgColor}">
+                            <i data-lucide="${icon}" class="w-5 h-5 ${iconColor}"></i>
+                        </div>
+                        <span class="text-xs sm:text-sm font-semibold text-gray-400">${title}</span>
+                    </div>
+                    <p class="text-lg sm:text-xl font-bold mt-2 ${isGold ? 'bg-gradient-gold bg-clip-text text-transparent' : 'text-[#EAEAEA]'}">${value}</p>
+                </button>
+            `;
+        }
+
+        function renderMetricCard(title, value, icon, style) {
+            const iconColor = style === 'gold' ? 'text-[#FFD700]' : 'text-[#4CC9F0]';
+            return `
+                <div class="bg-card-metallic p-4 rounded-xl shadow-inner flex flex-col">
+                    <div class="flex items-center justify-between mb-2">
+                        <i data-lucide="${icon}" class="w-5 h-5 ${iconColor}"></i>
+                        <span class="text-xs font-semibold text-gray-400">${title}</span>
+                    </div>
+                    <p class="text-xl font-extrabold ${style === 'gold' ? 'bg-gradient-gold bg-clip-text text-transparent' : 'text-[#EAEAEA]'}">${value}</p>
+                </div>
+            `;
+        }
+
+        function renderFeatureCard(title, description, icon, style) {
+            const iconColor = style === 'gold' ? 'text-[#FFD700]' : 'text-[#00C2FF]';
+            const iconBg = style === 'gold' ? 'bg-[#FFD700]/10' : 'bg-[#00C2FF]/10';
+            return `
+                <div class="bg-card-metallic p-4 rounded-xl shadow-lg flex items-start space-x-4 transition hover:scale-[1.02] duration-300">
+                    <div class="p-3 rounded-full ${iconBg}">
+                        <i data-lucide="${icon}" class="w-6 h-6 ${iconColor}"></i>
+                    </div>
+                    <div>
+                        <h3 class="text-md font-semibold text-[#EAEAEA]">${title}</h3>
+                        <p class="text-xs text-gray-400">${description}</p>
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderStepCard(title, description, icon, step) {
+            return `
+                <div class="bg-card-metallic p-4 rounded-xl shadow-lg flex flex-col items-center text-center">
+                    <div class="relative mb-3">
+                        <div class="w-10 h-10 rounded-full bg-gradient-accent text-white flex items-center justify-center font-bold text-lg">${step}</div>
+                        <i data-lucide="${icon}" class="absolute -bottom-1 -right-1 w-5 h-5 text-[#FFD700] bg-[#1C1C1C] rounded-full p-0.5"></i>
+                    </div>
+                    <h4 class="text-sm font-semibold text-[#EAEAEA]">${title}</h4>
+                    <p class="text-xs text-gray-400 mt-1">${description}</p>
+                </div>
+            `;
+        }
+
+        function renderPlanCard(plan) {
+            const isActive = plan.isActive;
+            const style = isActive ? 'bg-gradient-gold border-4 border-[#FFD700]' : 'bg-[#1C1C1C] border-2 border-gray-700 hover:border-sky-500';
+            const buttonText = isActive ? 'Active' : 'Activate';
+            const buttonClass = isActive ? 'bg-gray-500 cursor-not-allowed' : 'bg-gradient-accent hover:bg-sky-600';
+            const textColor = isActive ? 'text-[#0D0D0D]' : 'text-[#EAEAEA]';
+
+            return `
+                <div class="p-5 rounded-xl shadow-2xl transition duration-300 ${style}">
+                    <div class="flex items-center justify-between">
+                        <h3 class="text-xl font-bold ${textColor}">${plan.name}</h3>
+                        ${isActive ? '<span class="px-3 py-1 text-xs font-semibold rounded-full bg-yellow-900 text-[#FFD700]">My Plan</span>' : ''}
+                    </div>
+                    <p class="text-sm ${isActive ? 'text-gray-700' : 'text-gray-400'} mt-1">Min Deposit: $${plan.minDeposit}</p>
+                    <div class="mt-4 space-y-2">
+                        ${renderPlanFeature('Daily Return', `${plan.dailyReturn.toFixed(1)}%`, 'Activity', isActive)}
+                        ${renderPlanFeature('Duration', plan.duration, 'Clock', isActive)}
+                        ${renderPlanFeature('Max Earnings', plan.minDeposit > 0 ? 'High' : 'Low', 'Trophy', isActive)}
+                    </div>
+                    <button class="w-full py-3 mt-5 text-white font-bold rounded-lg transition duration-300 ${buttonClass}" ${isActive ? 'disabled' : ''} onclick="showModal('${buttonText}', 'Simulating plan activation for ${plan.name}. Proceed to Deposit to fund it.');">
+                        <i data-lucide="Zap" class="inline-block w-5 h-5 mr-2"></i> ${buttonText}
+                    </button>
+                </div>
+            `;
+        }
+
+        function renderPlanFeature(title, value, icon, isActive) {
+            const iconColor = isActive ? 'text-[#0D0D0D]' : 'text-[#4CC9F0]';
+            const textColor = isActive ? 'text-[#0D0D0D]' : 'text-[#EAEAEA]';
+            return `
+                <div class="flex justify-between items-center text-sm ${isActive ? 'font-semibold' : ''}">
+                    <span class="flex items-center ${isActive ? 'text-gray-700' : 'text-gray-400'}">
+                        <i data-lucide="${icon}" class="w-4 h-4 mr-2 ${iconColor}"></i> ${title}
+                    </span>
+                    <span class="${textColor}">${value}</span>
+                </div>
+            `;
+        }
+
+        function renderTaskRow(task) {
+            const isCompleted = task.status === 'Completed';
+            const statusClass = isCompleted ? 'bg-green-700/50 text-green-300' : 'bg-sky-700/50 text-sky-300';
+            const buttonClass = isCompleted ? 'bg-gray-600 cursor-not-allowed' : 'bg-gradient-accent hover:bg-sky-600 btn-accent';
+
+            return `
+                <div class="flex items-center justify-between p-3 border-b border-gray-700 last:border-b-0 hover:bg-[#3A3A3A] transition">
+                    <div class="flex items-center space-x-3">
+                        <i data-lucide="${task.icon}" class="w-6 h-6 text-[#4CC9F0]"></i>
+                        <div>
+                            <p class="text-sm font-semibold text-[#EAEAEA]">${task.desc}</p>
+                            <span class="px-2 py-0.5 text-xs rounded-full ${statusClass}">${task.status}</span>
+                        </div>
+                    </div>
+                    <div class="flex items-center space-x-3">
+                        <p class="text-lg font-bold bg-gradient-gold bg-clip-text text-transparent">+$${task.earnings.toFixed(2)}</p>
+                        <button class="px-4 py-1.5 text-sm font-bold rounded-lg ${buttonClass} text-white transition duration-300" 
+                            ${isCompleted ? 'disabled' : ''} 
+                            onclick="completeTask(${task.id})">
+                            ${isCompleted ? 'Done' : 'Complete'}
+                        </button>
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderSmallMetric(title, value, icon) {
+            return `
+                <div class="flex flex-col items-center">
+                    <i data-lucide="${icon}" class="w-5 h-5 text-gray-400 mb-1"></i>
+                    <p class="text-lg font-extrabold bg-gradient-gold bg-clip-text text-transparent">${value}</p>
+                    <span class="text-xs text-gray-500">${title}</span>
+                </div>
+            `;
+        }
+
+        function renderInput(label, type, id, value = '', attributes = '') {
+            return `
+                <label for="${id}" class="block text-sm font-medium text-gray-400 mb-1 mt-4">${label}</label>
+                <input type="${type}" id="${id}" value="${value}" ${attributes}
+                    class="w-full p-3 bg-[#1C1C1C] border border-gray-700 rounded-lg text-[#EAEAEA] focus:border-sky-500 focus:ring-sky-500" 
+                    ${value ? 'placeholder=""' : 'placeholder="Enter ' + label + '"'}>
+            `;
+        }
+
+        function renderSelect(label, id, options) {
+            return `
+                <label for="${id}" class="block text-sm font-medium text-gray-400 mb-1 mt-4">${label}</label>
+                <select id="${id}" class="w-full p-3 bg-[#1C1C1C] border border-gray-700 rounded-lg text-[#EAEAEA] focus:border-sky-500 focus:ring-sky-500">
+                    ${options.map(opt => `<option value="${opt}" class="bg-[#1C1C1C]">${opt}</option>`).join('')}
+                </select>
+            `;
+        }
+
+
+        // --- Application Initialization ---
+
+        window.onload = async () => {
+            // 1. Initialize Firebase and sign in
+            await window.initializeFirebase();
+
+            // 2. Determine initial view from hash or default to home
+            const initialHash = window.location.hash.replace('#', '');
+            if (['home', 'earn', 'profile', 'profile/account', 'profile/finance', 'profile/invite', 'profile/support'].includes(initialHash)) {
+                appState.view = initialHash;
+            } else {
+                appState.view = 'home';
+            }
+            
+            // 3. Render the application
+            renderApp();
+            updateBottomNav();
+
+            // 4. Handle hash changes for navigation
+            window.addEventListener('hashchange', () => {
+                const newHash = window.location.hash.replace('#', '');
+                navigate(newHash || 'home');
+            });
+        };
+    </script>
+</head>
+<body>
+
+    <!-- Main Content Area -->
+    <div id="app-content" class="max-w-3xl mx-auto">
+        <!-- Content will be rendered here by JavaScript -->
+    </div>
+
+    <!--  BOTTOM NAVIGATION BAR (Fixed) -->
+    <div class="fixed bottom-0 left-0 right-0 max-w-3xl mx-auto bg-[#1C1C1C] border-t border-gray-700 shadow-2xl rounded-t-2xl z-50">
+        <div class="flex justify-around items-center h-16 px-4">
+            
+            <!-- Earn -->
+            <button class="flex flex-col items-center justify-center nav-item" data-view="earn" onclick="navigate('earn')">
+                <i data-lucide="Zap" class="nav-icon w-6 h-6 text-gray-400 transition"></i>
+                <span class="text-xs mt-1 font-medium text-gray-400 transition-colors">Earn</span>
+            </button>
+            
+            <!-- Home (Center and Larger) -->
+            <button class="flex flex-col items-center justify-center -translate-y-2 nav-item" data-view="home" onclick="navigate('home')">
+                <div class="w-14 h-14 rounded-full bg-gradient-accent flex items-center justify-center shadow-2xl nav-icon transition">
+                    <i data-lucide="Home" class="w-7 h-7 text-white transition"></i>
+                </div>
+                <span class="text-xs mt-1 font-medium text-gray-400 transition-colors">Home</span>
+            </button>
+
+            <!-- Profile -->
+            <button class="flex flex-col items-center justify-center nav-item" data-view="profile" onclick="navigate('profile')">
+                <i data-lucide="User" class="nav-icon w-6 h-6 text-gray-400 transition"></i>
+                <span class="text-xs mt-1 font-medium text-gray-400 transition-colors">Profile</span>
+            </button>
+
+        </div>
+    </div>
+
+    <!-- Custom Modal (Non-alert replacement) -->
+    <div id="custom-modal" class="hidden fixed inset-0 bg-black/70 flex items-center justify-center z-[100] transition-opacity duration-300 opacity-0" onclick="closeModal()">
+        <div class="bg-card-metallic p-6 rounded-xl max-w-sm w-full mx-4 shadow-2xl border border-sky-500/30" onclick="event.stopPropagation()">
+            <h3 id="modal-title" class="text-xl font-bold mb-3 text-[#FFD700]"></h3>
+            <p id="modal-message" class="text-gray-300 mb-4"></p>
+            <button onclick="closeModal()" class="w-full py-2 bg-gradient-accent text-white font-semibold rounded-lg btn-accent">
+                Got It
+            </button>
+        </div>
+    </div>
+
+</body>
+</html>
